@@ -1,0 +1,107 @@
+# MIT License
+#
+# Copyright (c) 2020 Fredrik Kjellberg
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+function aws-mfa-login() {
+    # Set duraction to two hours
+    durationSeconds=7200
+
+    if [ -n "$AWS_SESSION_TOKEN" ]; then
+        echo "Session token found. Please clear the session token first by calling aws-mfa-clear."
+        return
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --profile)
+                export AWS_PROFILE="$2"
+                shift 2
+                ;;
+            --duration-seconds)
+                durationSeconds="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1"
+                return
+                ;;
+        esac
+    done
+
+    # Find the caller identity and username
+    callerIdentityArn=$(aws sts get-caller-identity --query "Arn" --output text)
+    if [ -z "$callerIdentityArn" ]; then
+        echo "Cannot find caller identity."
+        return
+    fi
+
+    username=$(echo -n "$callerIdentityArn" | sed -n "s!arn:aws:iam::.*:user/\(.*\)!\1!p")
+    if [ -z "$username" ]; then
+        echo "Cannot find caller identity username."
+        return
+    fi
+
+    # Find first MFA device registered to the IAM user
+    mfaSerialNumber=$(aws iam list-mfa-devices --user-name "$username" --query "MFADevices[0].SerialNumber" --output text)
+    if [ -z "$username" ]; then
+        echo "Cannot find any MFA device connected to the username $username."
+        return
+    fi
+
+    echo "Username:   $username"
+    echo "MFA device: $mfaSerialNumber"
+    echo
+    echo -n "Enter the 6-digit code displayed on the MFA device: "
+    read mfaCode
+    while [[ ! "$mfaCode" =~ ^[0-9]{6}$ ]]; do
+        echo
+        echo "Invalid MFA code. Please try again."
+        echo -n "Enter the 6-digit code displayed on the MFA device: "
+        read mfaCode
+    done
+
+    credentials=$(aws sts get-session-token --serial-number "$mfaSerialNumber" --token-code "$mfaCode" --duration-seconds $durationSeconds)
+    if [ -z "$credentials" ]; then
+        echo "Cannot retrieve temporary credentials."
+        return
+    fi
+
+    accessKey=$(echo "$credentials" | sed -n 's!.*"AccessKeyId": "\(.*\)".*!\1!p')
+    secretAccessKey=$(echo "$credentials" | sed -n 's!.*"SecretAccessKey": "\(.*\)".*!\1!p')
+    sessionToken=$(echo "$credentials" | sed -n 's!.*"SessionToken": "\(.*\)".*!\1!p')
+    expiration=$(echo "$credentials" | sed -n 's!.*"Expiration": "\(.*\)".*!\1!p')
+
+    if [ -z "$accessKey" ] || [ -z "$secretAccessKey" ] || [ -z "$sessionToken" ]; then
+        echo "Cannot retrieve temporary credentials."
+        return
+    fi
+
+    export AWS_ACCESS_KEY_ID=$accessKey
+    export AWS_SECRET_ACCESS_KEY=$secretAccessKey
+    export AWS_SESSION_TOKEN=$sessionToken
+
+    echo "Temporary credentials valid until $expiration."
+}
+
+function aws-mfa-clear() {
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+    echo "Temporary AWS credentials removed from environment."
+}
