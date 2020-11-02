@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 function aws-mfa-login() {
-    # Set duraction to two hours
+    # Set duration to two hours
     durationSeconds=7200
 
     if [ -n "$AWS_SESSION_TOKEN" ]; then
@@ -78,16 +78,16 @@ function aws-mfa-login() {
         read mfaCode
     done
 
-    credentials=$(aws sts get-session-token --serial-number "$mfaSerialNumber" --token-code "$mfaCode" --duration-seconds $durationSeconds)
+    credentials=$(aws sts get-session-token --serial-number "$mfaSerialNumber" --token-code "$mfaCode" --duration-seconds $durationSeconds --output json)
     if [ -z "$credentials" ]; then
         echo "Cannot retrieve temporary credentials."
         return
     fi
 
-    accessKey=$(echo "$credentials" | sed -n 's!.*"AccessKeyId": "\(.*\)".*!\1!p')
-    secretAccessKey=$(echo "$credentials" | sed -n 's!.*"SecretAccessKey": "\(.*\)".*!\1!p')
-    sessionToken=$(echo "$credentials" | sed -n 's!.*"SessionToken": "\(.*\)".*!\1!p')
-    expiration=$(echo "$credentials" | sed -n 's!.*"Expiration": "\(.*\)".*!\1!p')
+    accessKey=$(echo "$credentials" | sed -n 's!.*"AccessKeyId": *"\([^"]*\)".*!\1!p')
+    secretAccessKey=$(echo "$credentials" | sed -n 's!.*"SecretAccessKey": *"\([^"]*\)".*!\1!p')
+    sessionToken=$(echo "$credentials" | sed -n 's!.*"SessionToken": *"\([^"]*\)".*!\1!p')
+    expiration=$(echo "$credentials" | sed -n 's!.*"Expiration": *"\([^"]*\)".*!\1!p')
 
     if [ -z "$accessKey" ] || [ -z "$secretAccessKey" ] || [ -z "$sessionToken" ]; then
         echo "Cannot retrieve temporary credentials."
@@ -97,11 +97,39 @@ function aws-mfa-login() {
     export AWS_ACCESS_KEY_ID=$accessKey
     export AWS_SECRET_ACCESS_KEY=$secretAccessKey
     export AWS_SESSION_TOKEN=$sessionToken
+    export AWS_SESSION_TOKEN_EXPIRATION=$expiration
 
     echo "Temporary credentials valid until $expiration."
 }
 
 function aws-mfa-clear() {
-    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SESSION_TOKEN_EXPIRATION
     echo "Temporary AWS credentials removed from environment."
+}
+
+function aws-mfa-whoami() {
+    # Get caller identity information
+    callerIdentity=$(aws sts get-caller-identity --output json)
+    callerIdentityArn=$(echo "$callerIdentity" | sed -n 's!.*"Arn": *"\([^"]*\)".*!\1!p')
+    accountId=$(echo "$callerIdentity" | sed -n 's!.*"Account": *"\([^"]*\)".*!\1!p')
+
+    if [ -z "$callerIdentityArn" ] || [ -z "$accountId" ]; then
+        echo "Cannot get caller identity."
+        return
+    fi
+
+    # Get account alias
+    accountAlias=$(aws iam list-account-aliases --query "AccountAliases[0]" --output text)
+
+    echo "Profile: $AWS_PROFILE"
+    echo "Account: $accountId $accountAlias"
+    echo "User:    $callerIdentityArn"
+
+    if [ -n "$AWS_SESSION_TOKEN_EXPIRATION" ]; then
+        echo
+        echo "Session token expiration: $AWS_SESSION_TOKEN_EXPIRATION"
+    else
+        echo
+        echo "No active session token"
+    fi
 }

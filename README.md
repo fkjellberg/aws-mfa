@@ -29,3 +29,7 @@ the aws-mfa script is 7200 seconds (2 hours). The shortest duration supported by
 Remove the temporary credentials from the environment.
 
     aws-mfa-clear
+
+## aws-mfa-whoami
+
+Display account information and caller identity.
