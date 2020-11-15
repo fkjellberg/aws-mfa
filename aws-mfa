@@ -24,10 +24,8 @@ function aws-mfa-login() {
     # Set duration to two hours
     durationSeconds=7200
 
-    if [ -n "$AWS_SESSION_TOKEN" ]; then
-        echo "Session token found. Please clear the session token first by calling aws-mfa-clear."
-        return
-    fi
+    # Remove existing credentials from environment
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SESSION_TOKEN_EXPIRATION
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -46,9 +44,12 @@ function aws-mfa-login() {
         esac
     done
 
-    # Find the caller identity and username
-    callerIdentityArn=$(aws sts get-caller-identity --query "Arn" --output text)
-    if [ -z "$callerIdentityArn" ]; then
+    # Get caller identity and account information
+    callerIdentity=$(aws sts get-caller-identity --output json)
+    callerIdentityArn=$(echo "$callerIdentity" | sed -n 's!.*"Arn": *"\([^"]*\)".*!\1!p')
+    accountId=$(echo "$callerIdentity" | sed -n 's!.*"Account": *"\([^"]*\)".*!\1!p')
+
+    if [ -z "$callerIdentityArn" ] || [ -z "$accountId" ]; then
         echo "Cannot find caller identity."
         return
     fi
@@ -59,6 +60,9 @@ function aws-mfa-login() {
         return
     fi
 
+    # Get account alias
+    accountAlias=$(aws iam list-account-aliases --query "AccountAliases[0]" --output text)
+
     # Find first MFA device registered to the IAM user
     mfaSerialNumber=$(aws iam list-mfa-devices --user-name "$username" --query "MFADevices[0].SerialNumber" --output text)
     if [ -z "$username" ]; then
@@ -66,6 +70,9 @@ function aws-mfa-login() {
         return
     fi
 
+    echo "Profile:    $AWS_PROFILE"
+    echo "Account:    $accountId $accountAlias"
+    echo "User:       $callerIdentityArn"
     echo "Username:   $username"
     echo "MFA device: $mfaSerialNumber"
     echo
@@ -99,6 +106,7 @@ function aws-mfa-login() {
     export AWS_SESSION_TOKEN=$sessionToken
     export AWS_SESSION_TOKEN_EXPIRATION=$expiration
 
+    echo
     echo "Temporary credentials valid until $expiration."
 }
 
