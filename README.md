@@ -33,3 +33,29 @@ Remove the temporary credentials from the environment.
 ## aws-mfa-whoami
 
 Display account information and caller identity.
+
+
+## Examples
+
+https://github.com/Nike-Inc/gimme-aws-creds
+
+AWS_DEFAULT_DURATION
+
+aws_default_duration = This is optional. Lifetime for temporary credentials, in seconds. Defaults to 1 hour (3600)
+
+gimme-aws-creds --action-configure --profile profileName
+
+
+aws-mfa login --profile profileName
+
+aws-mfa help
+
+aws-mfa whoami
+
+aws-mfa clear
+
+aws-mfa clipboard export
+
+aws-mfa show export
+aws-mfa show redshift
+aws-mfa show snowflake
